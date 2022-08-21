@@ -1,0 +1,9 @@
+[package]
+name = "fox"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+crossterm = "0.25.0"
+clap = "3.2.17"
+owo-colors = "3.4.0"
