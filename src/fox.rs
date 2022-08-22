@@ -2,7 +2,6 @@ use std::io::{stdout};
 use std::path::Path;
 
 use crossterm::{
-    style::*,
     terminal::*,
     cursor,
     ExecutableCommand, Result,
@@ -13,12 +12,14 @@ pub struct Fox {
     path: String,
     text: Vec<String>,
     cursor: (u16, u16),
+    highlight: (u16, u16),
     scroll: u16,
 }
 
 impl Fox {
     pub fn new(filename: &str) -> Result<Self> {
         stdout().execute(EnterAlternateScreen)?;
+        stdout().execute(cursor::SetCursorShape(cursor::CursorShape::Block))?;
         enable_raw_mode()?;
 
         let path = Path::new(filename);
@@ -32,6 +33,7 @@ impl Fox {
             path: filename.to_string(),
             text: text,
             cursor: (0,0),
+            highlight: (0,0),
             scroll: 0,
         })
     }
@@ -73,6 +75,11 @@ impl Fox {
                 //Finish line
                 for _ in cursor::position()?.1 .. terminal_size.1 { print!(" "); }
             }
+        }
+
+        // Highlight
+        if self.highlight != self.cursor {
+            todo!();
         }
 
         // Footer
@@ -169,11 +176,17 @@ impl Fox {
         } else if self.cursor.1 > 0 {
             self.cursor.1 -= i.abs() as u16;
         }
-        if self.text.get(self.cursor.1 as usize).is_none() {
+        if let Some(line) = self.text.get(self.cursor.1 as usize) {
+            if self.cursor.0 > line.len() as u16 {
+                self.cursor.0 = line.len() as u16;
+            }
+        } else {
             self.cursor.1 = old;
         }
+        self.highlight = self.cursor;
     }
 
+    //TODO: Perhaps move the cursor to the next/previous line if at the end/start of the current line?
     pub fn cursor_horizontal(&mut self, i: i16) {
         let old = self.cursor.0;
         if i > 0 {
@@ -183,6 +196,19 @@ impl Fox {
         }
         if self.cursor.0 as usize > self.text[self.cursor.1 as usize].len() {
             self.cursor.0 = old;
+        }
+        self.highlight = self.cursor;
+    }
+
+    pub fn highlight_horizontal(&mut self, i: i16) {
+        let old = self.highlight.0;
+        if i > 0 {
+            self.highlight.0 += i as u16;
+        } else if self.highlight.0 > 0 {
+            self.highlight.0 -= i.abs() as u16;
+        }
+        if self.highlight.0 as usize > self.text[self.highlight.1 as usize].len() {
+            self.highlight.0 = old;
         }
     }
 }
@@ -200,12 +226,16 @@ pub fn run(filename: &str) -> Result<()> {
         match read()? {
             Event::Key(key) => {
                 if key.modifiers.contains(KeyModifiers::CONTROL) {
-                    // if key.code == KeyCode::Char('q') {
-                    //     break 'app;
-                    // }
                     match key.code {
                         KeyCode::Char('q') => break 'app,
-                        KeyCode::Char('s') => editor.save()?,
+                        KeyCode::Char('s') => editor.save()?, //TODO: If also holding shift, save as?
+                        _ => {},
+                    }
+                } else if key.modifiers.contains(KeyModifiers::SHIFT) {
+                    match key.code {
+                        KeyCode::Char(c) => c.to_uppercase().for_each(|c| editor.push_char(c)),
+                        KeyCode::Left => editor.highlight_horizontal(-1),
+                        KeyCode::Right => editor.highlight_horizontal(1),
                         _ => {},
                     }
                 } else {
