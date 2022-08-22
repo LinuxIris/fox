@@ -64,7 +64,7 @@ impl Fox {
             if let Some(line) = self.text.get(line_num-1) {
                 // print!("{: >2} {}", line_num, line);
                 print!("{}", format!(" {: >width$} ", line_num, width=width).on_truecolor(48,48,48));
-                print!("{}", &line[..line.len().min(terminal_size.0 as usize - 4)]);
+                print!("{}", &line[..line.len().min(terminal_size.0 as usize - 4)].replace('\t', "  "));
                 //Finish line
                 for _ in cursor::position()?.1 .. terminal_size.1 { print!(" "); }
             } else {
@@ -110,7 +110,10 @@ impl Fox {
             result.push(c);
             result.push_str(right);
             self.text[self.cursor.1 as usize] = result;
-            self.cursor.0 += 1;
+            match c {
+                '\t' => self.cursor.0 += 2,
+                _ => self.cursor.0 += 1,
+            }
         }
     }
 
@@ -208,6 +211,7 @@ pub fn run(filename: &str) -> Result<()> {
                 } else {
                     match key.code {
                         KeyCode::Char(c) => editor.push_char(c),
+                        KeyCode::Tab => editor.push_char('\t'),
                         KeyCode::Backspace => editor.pop_char(),
                         KeyCode::Delete => editor.pop_char_del(),
                         KeyCode::Up => editor.cursor_vertical(-1),
