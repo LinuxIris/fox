@@ -89,7 +89,7 @@ impl Fox {
                     let text = &line[min_x..max_x];
                     let cpos_y = if self.scroll > self.cursor.1 { 0 } else { self.cursor.1 - self.scroll } + 1;
                     stdout().execute(cursor::MoveTo((min_x+width+2) as u16, cpos_y))?;
-                    print!("{}", text.on_truecolor(160,160,160));
+                    print!("{}", text.truecolor(32,32,32).on_truecolor(160,160,160));
                 }
             } else {
                 // Multi line selection
