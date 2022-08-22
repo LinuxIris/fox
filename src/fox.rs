@@ -107,6 +107,9 @@ impl Fox {
 
     pub fn pop_char(&mut self) {
         if let Some(line) = self.text.get(self.cursor.1 as usize) {
+            if self.cursor.0 == 0 {
+                return;
+            }
             let line = line.clone();
             let (left, right) = line.split_at(self.cursor.0 as usize);
             let mut result = String::from(left);
@@ -119,14 +122,30 @@ impl Fox {
 
     pub fn pop_char_del(&mut self) {
         if let Some(line) = self.text.get(self.cursor.1 as usize) {
-            let line = line.clone();
             if self.cursor.0 as usize >= line.len() {
                 return;
             }
+            let line = line.clone();
             let (left, right) = line.split_at(self.cursor.0 as usize);
             let mut result = String::from(left);
             result.push_str(&right[1..]);
             self.text[self.cursor.1 as usize] = result;
+        }
+    }
+
+    pub fn enter(&mut self) {
+        if let Some(line) = self.text.get(self.cursor.1 as usize) {
+            if self.cursor.0 as usize >= line.len() {
+                self.text.push(String::new());
+                self.cursor_vertical(1);
+                return;
+            }
+            let (left, right) = line.split_at(self.cursor.0 as usize);
+            let right = String::from(right);
+            self.text[self.cursor.1 as usize] = String::from(left);
+            self.text.insert(self.cursor.1 as usize + 1, right);
+            self.cursor_vertical(1);
+            self.cursor.0 = 0;
         }
     }
 
@@ -181,10 +200,11 @@ pub fn run(filename: &str) -> Result<()> {
                         KeyCode::Char(c) => editor.push_char(c),
                         KeyCode::Backspace => editor.pop_char(),
                         KeyCode::Delete => editor.pop_char_del(),
-                        KeyCode::Up => editor.cursor_vertical(1),
-                        KeyCode::Down => editor.cursor_vertical(-1),
+                        KeyCode::Up => editor.cursor_vertical(-1),
+                        KeyCode::Down => editor.cursor_vertical(1),
                         KeyCode::Right => editor.cursor_horizontal(1),
                         KeyCode::Left => editor.cursor_horizontal(-1),
+                        KeyCode::Enter => editor.enter(),
                         _ => {},
                     }
                 }
