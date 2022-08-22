@@ -52,7 +52,7 @@ impl Fox {
         }
         stdout().execute(cursor::MoveTo(offset as u16,0))?;
         print!("{}", filename.on_truecolor(64,64,64));
-        for _ in 0..offset + filename.len() % 1 {
+        for _ in 0..offset + filename.len() % 1 + 1 {
             print!("{}", " ".on_truecolor(64,64,64));
         }
 
@@ -64,7 +64,7 @@ impl Fox {
             if let Some(line) = self.text.get(line_num-1) {
                 // print!("{: >2} {}", line_num, line);
                 print!("{}", format!(" {: >width$} ", line_num, width=width).on_truecolor(48,48,48));
-                print!("{}", &line[..line.len().min(terminal_size.1 as usize - 4)]);
+                print!("{}", &line[..line.len().min(terminal_size.0 as usize - 4)]);
                 //Finish line
                 for _ in cursor::position()?.1 .. terminal_size.1 { print!(" "); }
             } else {
@@ -74,6 +74,15 @@ impl Fox {
                 for _ in cursor::position()?.1 .. terminal_size.1 { print!(" "); }
             }
         }
+
+        // Footer
+        stdout().execute(cursor::MoveTo(0,terminal_size.1))?;
+        for _ in 0..terminal_size.0 { print!("{}", " ".on_truecolor(64,64,64)); }
+        stdout().execute(cursor::MoveTo(0,terminal_size.1))?;
+        print!("{}", "status here".on_truecolor(64,64,64));
+        let footer_loc = format!("{}:{}", self.cursor.0+1, self.cursor.1+1);
+        stdout().execute(cursor::MoveTo(terminal_size.0-footer_loc.len() as u16,terminal_size.1))?;
+        print!("{}", footer_loc.on_truecolor(64,64,64));
 
         // Move cursor to show typing location
         let cpos_y = self.cursor.1 - self.scroll + 1;
@@ -138,6 +147,7 @@ impl Fox {
             if self.cursor.0 as usize >= line.len() {
                 self.text.push(String::new());
                 self.cursor_vertical(1);
+                self.cursor.0 = 0;
                 return;
             }
             let (left, right) = line.split_at(self.cursor.0 as usize);
