@@ -19,7 +19,7 @@ pub struct Fox {
 impl Fox {
     pub fn new(filename: &str) -> Result<Self> {
         stdout().execute(EnterAlternateScreen)?;
-        stdout().execute(cursor::SetCursorShape(cursor::CursorShape::Block))?;
+        // stdout().execute(cursor::SetCursorShape(cursor::CursorShape::Line))?;
         enable_raw_mode()?;
 
         let path = Path::new(filename);
@@ -59,14 +59,14 @@ impl Fox {
         }
 
         // Content
+        let width = ((self.scroll as usize + terminal_size.1 as usize).checked_log10().unwrap_or(0) + 1) as usize;
         for i in 1..terminal_size.1-1 {
             let line_num = i as usize + self.scroll as usize;
-            let width = ((self.scroll as usize + terminal_size.1 as usize).checked_log10().unwrap_or(0) + 1) as usize;
             stdout().execute(cursor::MoveTo(0,i))?;
             if let Some(line) = self.text.get(line_num-1) {
                 // print!("{: >2} {}", line_num, line);
                 print!("{}", format!(" {: >width$} ", line_num, width=width).on_truecolor(48,48,48));
-                print!("{}", &line[..line.len().min(terminal_size.0 as usize - 4)].replace('\t', "  "));
+                print!("{}", &line[..line.len().min(terminal_size.0 as usize - width - 2)].replace('\t', "  "));
                 //Finish line
                 for _ in cursor::position()?.1 .. terminal_size.1 { print!(" "); }
             } else {
@@ -79,7 +79,27 @@ impl Fox {
 
         // Highlight
         if self.highlight != self.cursor {
-            todo!();
+            // let hpos_y = if self.scroll > self.highlight.1 { 0 } else { self.highlight.1 - self.scroll } + 1;
+            // let cpos_y = if self.scroll > self.cursor.1 { 0 } else { self.cursor.1 - self.scroll } + 1;
+            if self.highlight.1 == self.cursor.1 {
+                // Single line selection
+                if let Some(line) = self.text.get(self.cursor.1 as usize) {
+                    let min_x = self.highlight.0.min(self.cursor.0) as usize;
+                    let max_x = self.highlight.0.max(self.cursor.0) as usize;
+                    let text = &line[min_x..max_x];
+                    let cpos_y = if self.scroll > self.cursor.1 { 0 } else { self.cursor.1 - self.scroll } + 1;
+                    stdout().execute(cursor::MoveTo((min_x+width+2) as u16, cpos_y))?;
+                    print!("{}", text.on_truecolor(160,160,160));
+                }
+            } else {
+                // Multi line selection
+                todo!();
+                // let min_y = self.highlight.1.min(self.cursor.1);
+                // let max_y = self.highlight.1.max(self.cursor.1);
+                // for i in min_y..max_y {
+                //
+                // }
+            }
         }
 
         // Footer
@@ -92,12 +112,12 @@ impl Fox {
         print!("{}", footer_loc.on_truecolor(64,64,64));
 
         // Move cursor to show typing location
-        let cpos_y = self.cursor.1 - self.scroll + 1;
+        let cpos_y = if self.scroll > self.cursor.1 { 0 } else { self.cursor.1 - self.scroll } + 1;
         if cpos_y < 1 || cpos_y >= terminal_size.1-1 {
             stdout().execute(cursor::Hide)?;
         } else {
-            stdout().execute(cursor::Show)?;
-            stdout().execute(cursor::MoveTo(self.cursor.0 + 4, cpos_y))?;
+            if self.highlight == self.cursor { stdout().execute(cursor::Show)?; } else { stdout().execute(cursor::Hide)?; }
+            stdout().execute(cursor::MoveTo(self.cursor.0 + width as u16 + 2, cpos_y))?;
         }
 
         stdout().flush()?;
@@ -188,14 +208,33 @@ impl Fox {
 
     //TODO: Perhaps move the cursor to the next/previous line if at the end/start of the current line?
     pub fn cursor_horizontal(&mut self, i: i16) {
-        let old = self.cursor.0;
-        if i > 0 {
-            self.cursor.0 += i as u16;
-        } else if self.cursor.0 > 0 {
-            self.cursor.0 -= i.abs() as u16;
-        }
-        if self.cursor.0 as usize > self.text[self.cursor.1 as usize].len() {
-            self.cursor.0 = old;
+        if self.highlight != self.cursor {
+            let (start, end) = {
+                if self.highlight.1 == self.cursor.1 {
+                    // Single line selection
+                    let min_x = self.highlight.0.min(self.cursor.0);
+                    let max_x = self.highlight.0.max(self.cursor.0);
+                    ((min_x,self.cursor.1),(max_x,self.cursor.1))
+                } else {
+                    // Multi line selection
+                    todo!();
+                }
+            };
+            if i > 0 {
+                self.cursor = end;
+            } else {
+                self.cursor = start;
+            }
+        } else {
+            let old = self.cursor.0;
+            if i > 0 {
+                self.cursor.0 += i as u16;
+            } else if self.cursor.0 > 0 {
+                self.cursor.0 -= i.abs() as u16;
+            }
+            if self.cursor.0 as usize > self.text[self.cursor.1 as usize].len() {
+                self.cursor.0 = old;
+            }
         }
         self.highlight = self.cursor;
     }
