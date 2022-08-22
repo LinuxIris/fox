@@ -170,10 +170,10 @@ impl Fox {
             result.push(c);
             result.push_str(right);
             self.text[self.cursor.1 as usize] = result;
-            match c {
-                '\t' => self.cursor.0 += 2,
-                _ => self.cursor.0 += 1,
-            }
+            self.cursor_horizontal(match c {
+                '\t' => 2,
+                _ => 1,
+            })
         }
     }
 
@@ -188,7 +188,7 @@ impl Fox {
             result.pop();
             result.push_str(right);
             self.text[self.cursor.1 as usize] = result;
-            self.cursor.0 -= 1;
+            self.cursor_horizontal(-1);
         }
     }
 
