@@ -8,12 +8,24 @@ use crossterm::{
     event::*,
 };
 
+use syntect::{
+    easy::HighlightLines,
+    highlighting::{Style, Theme, Color},
+    util::as_24_bit_terminal_escaped,
+    parsing::SyntaxReference,
+};
+
 pub struct Fox {
     path: String,
     text: Vec<String>,
     cursor: (u16, u16),
     highlight: (u16, u16),
     scroll: u16,
+
+    syntax: SyntaxReference,
+    theme: Theme,
+
+    bg: Color,
 }
 
 impl Fox {
@@ -29,12 +41,28 @@ impl Fox {
             vec![String::new()]
         };
 
+        let ps = &carbon_dump::SYNTAX_SET;
+        let ts = &carbon_dump::THEME_SET;
+        let syntax = if let Some(extension) = &path.extension().map(|s| s.to_str().expect("Unparsable extension!")) {
+            ps.find_syntax_by_extension(&extension).unwrap()
+        } else {
+            ps.find_syntax_plain_text()
+        };
+        let theme = &ts.themes["gruvbox-dark"];
+
+        let bg = theme.settings.background.unwrap_or(Color::BLACK);
+
         Ok(Self {
             path: filename.to_string(),
             text: text,
             cursor: (0,0),
             highlight: (0,0),
             scroll: 0,
+
+            syntax: syntax.clone(),
+            theme: theme.clone(),
+
+            bg: bg,
         })
     }
 
@@ -59,21 +87,26 @@ impl Fox {
         }
 
         // Content
+        let mut h = HighlightLines::new(&self.syntax, &self.theme);
         let width = ((self.scroll as usize + terminal_size.1 as usize).checked_log10().unwrap_or(0) + 1) as usize;
         for i in 1..terminal_size.1-1 {
             let line_num = i as usize + self.scroll as usize;
             stdout().execute(cursor::MoveTo(0,i))?;
             if let Some(line) = self.text.get(line_num-1) {
-                // print!("{: >2} {}", line_num, line);
                 print!("{}", format!(" {: >width$} ", line_num, width=width).on_truecolor(48,48,48));
-                print!("{}", &line[..line.len().min(terminal_size.0 as usize - width - 2)].replace('\t', "  "));
+
+                let line = line.replace('\t', "  ");
+                let line = &line[..line.len().min(terminal_size.0 as usize - width - 2)];
+                let ranges: Vec<(Style, &str)> = h.highlight(line, &carbon_dump::SYNTAX_SET);
+                print!("{}", as_24_bit_terminal_escaped(&ranges[..], true));
+
                 //Finish line
-                for _ in cursor::position()?.1 .. terminal_size.1 { print!(" "); }
+                for _ in cursor::position()?.0 .. terminal_size.0 { print!("{}", " ".on_truecolor(self.bg.r, self.bg.g, self.bg.b)); }
             } else {
-                print!("{}", format!(" {: >width$} ", line_num, width=width).on_truecolor(48,48,48));
-                print!("~");
+                print!("{}", format!(" {: >width$} ", line_num, width=width).on_truecolor(self.bg.r, self.bg.g, self.bg.b));
+                print!("{}", "~".on_truecolor(self.bg.r, self.bg.g, self.bg.b));
                 //Finish line
-                for _ in cursor::position()?.1 .. terminal_size.1 { print!(" "); }
+                for _ in cursor::position()?.0 .. terminal_size.0 { print!("{}", " ".on_truecolor(self.bg.r, self.bg.g, self.bg.b)); }
             }
         }
 

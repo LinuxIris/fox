@@ -7,3 +7,7 @@ edition = "2021"
 crossterm = "0.25.0"
 clap = "3.2.17"
 owo-colors = "3.4.0"
+
+# Syntax highlighting
+syntect = "4.6"
+carbon-dump = "1.2.2"
