@@ -178,7 +178,26 @@ impl Fox {
     }
 
     pub fn pop_char(&mut self) {
-        if let Some(line) = self.text.get(self.cursor.1 as usize) {
+        if self.highlight != self.cursor {
+            if self.highlight.1 == self.cursor.1 {
+                // Single line selection
+                let min_x = self.highlight.0.min(self.cursor.0);
+                let max_x = self.highlight.0.max(self.cursor.0);
+                let pop_count = max_x - min_x;
+                if let Some(line) = self.text.get(self.cursor.1 as usize) {
+                    let line = line.clone();
+                    let (left, right) = line.split_at(max_x as usize);
+                    let mut result = String::from(left);
+                    for _ in 0..pop_count { result.pop(); }
+                    result.push_str(right);
+                    self.text[self.cursor.1 as usize] = result;
+                    self.cursor_horizontal(-(pop_count as i16));
+                }
+            } else {
+                // Multi line selection
+                todo!();
+            }
+        } else if let Some(line) = self.text.get(self.cursor.1 as usize) {
             if self.cursor.0 == 0 {
                 return;
             }
@@ -193,7 +212,9 @@ impl Fox {
     }
 
     pub fn pop_char_del(&mut self) {
-        if let Some(line) = self.text.get(self.cursor.1 as usize) {
+        if self.highlight != self.cursor {
+            self.pop_char();
+        } else if let Some(line) = self.text.get(self.cursor.1 as usize) {
             if self.cursor.0 as usize >= line.len() {
                 return;
             }
