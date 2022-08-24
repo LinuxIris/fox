@@ -15,12 +15,34 @@ use syntect::{
     parsing::SyntaxReference,
 };
 
+#[derive(Copy, Clone)]
+pub enum PromptType {
+    UnsavedQuit,
+}
+
+impl PromptType {
+    fn text(&self) -> &'static str {
+        match self {
+            Self::UnsavedQuit => "Unsaved changes, quit? (y/n)",
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct Prompt {
+    pub prompt: PromptType,
+    pub buf: String,
+}
+
 pub struct Fox {
     path: String,
     text: Vec<String>,
     cursor: (u16, u16),
     highlight: (u16, u16),
     scroll: u16,
+
+    dirty: bool,
+    prompt: Option<Prompt>,
 
     syntax: SyntaxReference,
     theme: Theme,
@@ -59,6 +81,9 @@ impl Fox {
             highlight: (0,0),
             scroll: 0,
 
+            dirty: false,
+            prompt: None,
+
             syntax: syntax.clone(),
             theme: theme.clone(),
 
@@ -75,7 +100,8 @@ impl Fox {
 
         // Header
         stdout().execute(cursor::MoveTo(0,0))?;
-        let filename = &self.path[..self.path.len().min(terminal_size.0 as usize)];
+        let mut filename = self.path[..self.path.len().min(terminal_size.0 as usize)].to_string();
+        if self.dirty { filename.push('*'); }
         let offset = (terminal_size.0 as usize - filename.len()) / 2;
         for _ in 0..offset {
             print!("{}", " ".on_truecolor(64,64,64));
@@ -139,7 +165,16 @@ impl Fox {
         stdout().execute(cursor::MoveTo(0,terminal_size.1))?;
         for _ in 0..terminal_size.0 { print!("{}", " ".on_truecolor(64,64,64)); }
         stdout().execute(cursor::MoveTo(0,terminal_size.1))?;
-        print!("{}", "status here".on_truecolor(64,64,64));
+
+        // Status/prompt
+        if let Some(prompt) = &self.prompt {
+            print!("{}", format!("{}: ", prompt.prompt.text()).on_truecolor(64,64,64));
+            print!("{}", prompt.buf.on_truecolor(64,64,64));
+        } else {
+            print!("{}", "status here".on_truecolor(64,64,64));
+        }
+
+        // Cursor location
         let footer_loc = format!("{}:{}", self.cursor.0+1, self.cursor.1+1);
         stdout().execute(cursor::MoveTo(terminal_size.0-footer_loc.len() as u16,terminal_size.1))?;
         print!("{}", footer_loc.on_truecolor(64,64,64));
@@ -157,97 +192,115 @@ impl Fox {
         Ok(())
     }
 
-    pub fn save(&self) -> Result<()> {
+    pub fn prompt(&mut self, prompt: PromptType) {
+        self.prompt = Some(Prompt {
+            prompt: prompt,
+            buf: String::new(),
+        });
+    }
+
+    pub fn save(&mut self) -> Result<()> {
         std::fs::write(&self.path, self.text.join("\n"))?;
+        self.dirty = false;
         Ok(())
     }
 
     pub fn push_char(&mut self, c: char) {
-        if let Some(line) = self.text.get(self.cursor.1 as usize) {
-            let line = line.clone();
-            let (left, right) = line.split_at(self.cursor.0 as usize);
-            let mut result = String::from(left);
-            result.push(c);
-            result.push_str(right);
-            self.text[self.cursor.1 as usize] = result;
-            self.cursor_horizontal(match c {
-                '\t' => 2,
-                _ => 1,
-            })
+        if let Some(prompt) = &mut self.prompt {
+            prompt.buf.push(c);
+        } else {
+            if let Some(line) = self.text.get(self.cursor.1 as usize) {
+                let line = line.clone();
+                let (left, right) = line.split_at(self.cursor.0 as usize);
+                let mut result = String::from(left);
+                result.push(c);
+                result.push_str(right);
+                self.text[self.cursor.1 as usize] = result;
+                self.cursor_horizontal(match c {
+                    '\t' => 2,
+                    _ => 1,
+                });
+            }
         }
     }
 
     pub fn pop_char(&mut self) {
-        if self.highlight != self.cursor {
-            if self.highlight.1 == self.cursor.1 {
-                // Single line selection
-                let min_x = self.highlight.0.min(self.cursor.0);
-                let max_x = self.highlight.0.max(self.cursor.0);
-                let pop_count = max_x - min_x;
-                if let Some(line) = self.text.get(self.cursor.1 as usize) {
-                    let line = line.clone();
-                    let (left, right) = line.split_at(max_x as usize);
-                    let mut result = String::from(left);
-                    for _ in 0..pop_count { result.pop(); }
-                    result.push_str(right);
-                    self.text[self.cursor.1 as usize] = result;
-                    self.cursor_horizontal(-(pop_count as i16));
-                }
-            } else {
-                // Multi line selection
-                todo!();
-            }
+        if let Some(prompt) = &mut self.prompt {
+            prompt.buf.pop();
         } else {
-            let remove = if let Some(line) = self.text.get(self.cursor.1 as usize) {
-                if self.cursor.0 == 0 {
-                    true
+            if self.highlight != self.cursor {
+                if self.highlight.1 == self.cursor.1 {
+                    // Single line selection
+                    let min_x = self.highlight.0.min(self.cursor.0);
+                    let max_x = self.highlight.0.max(self.cursor.0);
+                    let pop_count = max_x - min_x;
+                    if let Some(line) = self.text.get(self.cursor.1 as usize) {
+                        let line = line.clone();
+                        let (left, right) = line.split_at(max_x as usize);
+                        let mut result = String::from(left);
+                        for _ in 0..pop_count { result.pop(); }
+                        result.push_str(right);
+                        self.text[self.cursor.1 as usize] = result;
+                        self.cursor_horizontal(-(pop_count as i16));
+                    }
                 } else {
-                    let line = line.clone();
-                    let (left, right) = line.split_at(self.cursor.0 as usize);
-                    let mut result = String::from(left);
-                    result.pop();
-                    result.push_str(right);
-                    self.text[self.cursor.1 as usize] = result;
-                    self.cursor_horizontal(-1);
-                    false
+                    // Multi line selection
+                    todo!();
                 }
             } else {
-                false
-            };
+                let remove = if let Some(line) = self.text.get(self.cursor.1 as usize) {
+                    if self.cursor.0 == 0 {
+                        true
+                    } else {
+                        let line = line.clone();
+                        let (left, right) = line.split_at(self.cursor.0 as usize);
+                        let mut result = String::from(left);
+                        result.pop();
+                        result.push_str(right);
+                        self.text[self.cursor.1 as usize] = result;
+                        self.cursor_horizontal(-1);
+                        false
+                    }
+                } else {
+                    false
+                };
 
-            if remove {
-                let cur = self.text.get(self.cursor.1 as usize).unwrap().clone();
-                self.text.remove(self.cursor.1 as usize);
-                self.cursor_vertical(-1);
-                self.cursor_end_of_line();
-                if let Some(line) = self.text.get_mut(self.cursor.1 as usize) {
-                    line.push_str(&cur);
+                if remove {
+                    let cur = self.text.get(self.cursor.1 as usize).unwrap().clone();
+                    self.text.remove(self.cursor.1 as usize);
+                    self.cursor_vertical(-1);
+                    self.cursor_end_of_line();
+                    if let Some(line) = self.text.get_mut(self.cursor.1 as usize) {
+                        line.push_str(&cur);
+                    }
                 }
             }
         }
     }
 
     pub fn pop_char_del(&mut self) {
-        if self.highlight != self.cursor {
-            self.pop_char();
-        } else if let Some(line) = self.text.get(self.cursor.1 as usize) {
-            if self.cursor.0 as usize >= line.len() {
-                return;
+        if self.prompt.is_none() {
+            if self.highlight != self.cursor {
+                self.pop_char();
+            } else if let Some(line) = self.text.get(self.cursor.1 as usize) {
+                if self.cursor.0 as usize >= line.len() {
+                    return;
+                }
+                let line = line.clone();
+                let (left, right) = line.split_at(self.cursor.0 as usize);
+                let mut result = String::from(left);
+                result.push_str(&right[1..]);
+                self.text[self.cursor.1 as usize] = result;
             }
-            let line = line.clone();
-            let (left, right) = line.split_at(self.cursor.0 as usize);
-            let mut result = String::from(left);
-            result.push_str(&right[1..]);
-            self.text[self.cursor.1 as usize] = result;
         }
     }
 
     pub fn enter(&mut self) {
         if let Some(line) = self.text.get(self.cursor.1 as usize) {
             if self.cursor.0 as usize >= line.len() {
-                self.text.push(String::new());
+                self.text.insert(self.cursor.1 as usize + 1, String::new());
                 self.cursor_vertical(1);
-                self.cursor.0 = 0;
+                self.cursor_start_of_line();
                 return;
             }
             let (left, right) = line.split_at(self.cursor.0 as usize);
@@ -318,13 +371,19 @@ impl Fox {
             }
         } else {
             let old = self.cursor.0;
+            let old_y = self.cursor.1;
             if i > 0 {
                 self.cursor.0 += i as u16;
             } else if self.cursor.0 > 0 {
                 self.cursor.0 -= i.abs() as u16;
+            } else {
+                // Start of the line and moving left
+                self.cursor_vertical(-1);
+                if self.cursor.1 != old_y { self.cursor_end_of_line(); }
             }
             if self.cursor.0 as usize > self.text[self.cursor.1 as usize].len() {
-                self.cursor.0 = old;
+                self.cursor_vertical(1);
+                if self.cursor.1 != old_y { self.cursor_start_of_line(); } else { self.cursor.0 = old; }
             }
         }
         self.highlight = self.cursor;
@@ -357,7 +416,13 @@ pub fn run(filename: &str) -> Result<()> {
             Event::Key(key) => {
                 if key.modifiers.contains(KeyModifiers::CONTROL) {
                     match key.code {
-                        KeyCode::Char('q') => break 'app,
+                        KeyCode::Char('q') => {
+                            if editor.dirty {
+                                editor.prompt(PromptType::UnsavedQuit);
+                            } else {
+                                break 'app;
+                            }
+                        },
                         KeyCode::Char('s') => editor.save()?, //TODO: If also holding shift, save as?
                         _ => {},
                     }
@@ -370,15 +435,28 @@ pub fn run(filename: &str) -> Result<()> {
                     }
                 } else {
                     match key.code {
-                        KeyCode::Char(c) => editor.push_char(c),
-                        KeyCode::Tab => editor.push_char('\t'),
-                        KeyCode::Backspace => editor.pop_char(),
-                        KeyCode::Delete => editor.pop_char_del(),
+                        KeyCode::Char(c) => { editor.push_char(c); editor.dirty = true; },
+                        KeyCode::Tab => { editor.push_char('\t'); editor.dirty = true; },
+                        KeyCode::Backspace => { editor.pop_char(); editor.dirty = true; },
+                        KeyCode::Delete => { editor.pop_char_del(); editor.dirty = true; },
+                        KeyCode::Enter => {
+                            if editor.prompt.is_some() {
+                                let prompt = editor.prompt.as_ref().unwrap().clone();
+                                let ans = &prompt.buf;
+                                match prompt.prompt {
+                                    PromptType::UnsavedQuit => if ans == "y" || ans == "ye" || ans == "yes" { break 'app; }
+                                }
+                                editor.prompt = None;
+                            } else {
+                                editor.enter();
+                                editor.dirty = true;
+                            }
+                        },
+
                         KeyCode::Up => editor.cursor_vertical(-1),
                         KeyCode::Down => editor.cursor_vertical(1),
                         KeyCode::Right => editor.cursor_horizontal(1),
                         KeyCode::Left => editor.cursor_horizontal(-1),
-                        KeyCode::Enter => editor.enter(),
                         _ => {},
                     }
                 }
