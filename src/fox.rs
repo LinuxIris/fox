@@ -51,6 +51,12 @@ pub struct Fox {
     theme: Theme,
 
     bg: Color,
+    fg: Color,
+    gutter_bg: Color,
+    gutter_fg: Color,
+    highlight_bg: Color,
+    highlight_fg: Color,
+    header_bg: Color,
 }
 
 impl Fox {
@@ -73,9 +79,40 @@ impl Fox {
         } else {
             ps.find_syntax_plain_text()
         };
-        let theme = &ts.themes["gruvbox-dark"];
+        let theme = &ts.themes["gruvbox-dark"]; // gruvbox-dark
+        let theme_is_dark = true;
 
         let bg = theme.settings.background.unwrap_or(Color::BLACK);
+        let fg = theme.settings.foreground.unwrap_or(Color::WHITE);
+        let gutter_bg_mul = if theme_is_dark { 4.0 } else { 2.0 };
+        let gutter_bg = theme.settings.gutter.unwrap_or(Color {
+            r: (bg.r as f32 / 3.0 * gutter_bg_mul) as u8,
+            g: (bg.g as f32 / 3.0 * gutter_bg_mul) as u8,
+            b: (bg.b as f32 / 3.0 * gutter_bg_mul) as u8,
+            a: bg.a,
+        });
+        let gutter_fg = theme.settings.gutter_foreground.unwrap_or(fg);
+        let highlight_bg_default = if theme_is_dark { 48 } else { 132 };
+        let highlight_fg_default = if theme_is_dark { 160 } else { 48 };
+        let highlight_bg = theme.settings.selection.unwrap_or(theme.settings.highlight.unwrap_or(theme.settings.line_highlight.unwrap_or(theme.settings.find_highlight.unwrap_or(Color {
+            r: highlight_bg_default,
+            g: highlight_bg_default,
+            b: highlight_bg_default,
+            a: bg.a,
+        }))));
+        let highlight_fg = theme.settings.selection_foreground.unwrap_or(Color {
+            r: highlight_fg_default,
+            g: highlight_fg_default,
+            b: highlight_fg_default,
+            a: fg.a,
+        });
+        let header_bg_mul = if theme_is_dark { 5.0 } else { 1.5 };
+        let header_bg = Color {
+            r: (bg.r as f32 / 3.0 * header_bg_mul) as u8,
+            g: (bg.g as f32 / 3.0 * header_bg_mul) as u8,
+            b: (bg.b as f32 / 3.0 * header_bg_mul) as u8,
+            a: bg.a,
+        };
 
         Ok(Self {
             path: filename.to_string(),
@@ -92,6 +129,12 @@ impl Fox {
             theme: theme.clone(),
 
             bg: bg,
+            fg: fg,
+            gutter_bg: gutter_bg,
+            gutter_fg: gutter_fg,
+            highlight_bg: highlight_bg,
+            highlight_fg: highlight_fg,
+            header_bg: header_bg,
         })
     }
 
@@ -100,7 +143,6 @@ impl Fox {
         use owo_colors::OwoColorize;
 
         let terminal_size = size()?;
-        // stdout().execute(Clear(ClearType::All))?;
 
         // Header
         stdout().execute(cursor::MoveTo(0,0))?;
@@ -108,22 +150,25 @@ impl Fox {
         if self.dirty { filename.push('*'); }
         let offset = (terminal_size.0 as usize - filename.len()) / 2;
         for _ in 0..offset {
-            print!("{}", " ".on_truecolor(64,64,64));
+            print!("{}", " ".on_truecolor(self.header_bg.r,self.header_bg.g,self.header_bg.b));
         }
         stdout().execute(cursor::MoveTo(offset as u16,0))?;
-        print!("{}", filename.on_truecolor(64,64,64));
+        print!("{}", filename.truecolor(self.fg.r, self.fg.g, self.fg.b).on_truecolor(self.header_bg.r,self.header_bg.g,self.header_bg.b));
         for _ in 0..offset + filename.len() % 1 + 1 {
-            print!("{}", " ".on_truecolor(64,64,64));
+            print!("{}", " ".on_truecolor(self.header_bg.r,self.header_bg.g,self.header_bg.b));
         }
 
         // Content
         let mut h = HighlightLines::new(&self.syntax, &self.theme);
-        let width = ((self.scroll as usize + terminal_size.1 as usize).checked_log10().unwrap_or(0) + 1) as usize;
+        fn num_digits(n: u64, b: u32) -> u32 {
+            (n as f64).log(b as f64).ceil() as u32
+        }
+        let width = (num_digits((self.scroll as usize + terminal_size.1 as usize) as u64, 10) + 1) as usize;
         for i in 1..terminal_size.1-1 {
             let line_num = i as usize + self.scroll as usize;
             stdout().execute(cursor::MoveTo(0,i))?;
             if let Some(line) = self.text.get(line_num-1) {
-                print!("{}", format!(" {: >width$} ", line_num, width=width).on_truecolor(48,48,48));
+                print!("{}", format!(" {: >width$} ", line_num, width=width).truecolor(self.gutter_fg.r, self.gutter_fg.g, self.gutter_fg.b).on_truecolor(self.gutter_bg.r, self.gutter_bg.g, self.gutter_bg.b));
 
                 let line = line.replace('\t', "  ");
                 // let line = &line[..line.len().min(terminal_size.0 as usize - width - 2)];
@@ -133,8 +178,8 @@ impl Fox {
                 //Finish line
                 for _ in cursor::position()?.0 .. terminal_size.0 { print!("{}", " ".on_truecolor(self.bg.r, self.bg.g, self.bg.b)); }
             } else {
-                print!("{}", format!(" {: >width$} ", line_num, width=width).on_truecolor(self.bg.r, self.bg.g, self.bg.b));
-                print!("{}", "~".on_truecolor(self.bg.r, self.bg.g, self.bg.b));
+                print!("{}", format!(" {: >width$} ", line_num, width=width).truecolor(self.gutter_fg.r, self.gutter_fg.g, self.gutter_fg.b).on_truecolor(self.gutter_bg.r, self.gutter_bg.g, self.gutter_bg.b));
+                print!("{}", "~".truecolor(self.gutter_fg.r, self.gutter_fg.g, self.gutter_fg.b).on_truecolor(self.gutter_bg.r, self.gutter_bg.g, self.gutter_bg.b));
                 //Finish line
                 for _ in cursor::position()?.0 .. terminal_size.0 { print!("{}", " ".on_truecolor(self.bg.r, self.bg.g, self.bg.b)); }
             }
@@ -152,7 +197,7 @@ impl Fox {
                     let text = &line[min_x..max_x];
                     let cpos_y = if self.scroll > self.cursor.1 { 0 } else { self.cursor.1 - self.scroll } + 1;
                     stdout().execute(cursor::MoveTo((min_x+width+2) as u16, cpos_y))?;
-                    print!("{}", text.truecolor(32,32,32).on_truecolor(160,160,160));
+                    print!("{}", text.truecolor(self.highlight_fg.r, self.highlight_fg.g, self.highlight_fg.b).on_truecolor(self.highlight_bg.r, self.highlight_bg.g, self.highlight_bg.b));
                 }
             } else {
                 // Multi line selection
@@ -167,22 +212,22 @@ impl Fox {
 
         // Footer
         stdout().execute(cursor::MoveTo(0,terminal_size.1))?;
-        for _ in 0..terminal_size.0 { print!("{}", " ".on_truecolor(64,64,64)); }
+        for _ in 0..terminal_size.0 { print!("{}", " ".on_truecolor(self.header_bg.r,self.header_bg.g,self.header_bg.b)); }
         stdout().execute(cursor::MoveTo(0,terminal_size.1))?;
 
         // Status/prompt
         if let Some(prompt) = &self.prompt {
-            print!("{}", format!("{}: ", prompt.prompt.text()).on_truecolor(64,64,64));
-            print!("{}", prompt.buf.on_truecolor(64,64,64));
+            print!("{}", format!("{}: ", prompt.prompt.text()).truecolor(self.fg.r, self.fg.g, self.fg.b).on_truecolor(self.header_bg.r,self.header_bg.g,self.header_bg.b));
+            print!("{}", prompt.buf.truecolor(self.fg.r, self.fg.g, self.fg.b).on_truecolor(self.header_bg.r,self.header_bg.g,self.header_bg.b));
         } else {
-            print!("{}", self.status.on_truecolor(64,64,64));
+            print!("{}", self.status.truecolor(self.fg.r, self.fg.g, self.fg.b).on_truecolor(self.header_bg.r,self.header_bg.g,self.header_bg.b));
             self.status = String::new();
         }
 
         // Cursor location
         let footer_loc = format!("{}:{}", self.cursor.0+1, self.cursor.1+1);
         stdout().execute(cursor::MoveTo(terminal_size.0-footer_loc.len() as u16,terminal_size.1))?;
-        print!("{}", footer_loc.on_truecolor(64,64,64));
+        print!("{}", footer_loc.truecolor(self.fg.r, self.fg.g, self.fg.b).on_truecolor(self.header_bg.r,self.header_bg.g,self.header_bg.b));
 
         // Move cursor to show typing location
         let cpos_y = if self.scroll > self.cursor.1 { 0 } else { self.cursor.1 - self.scroll } + 1;

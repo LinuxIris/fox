@@ -1,5 +1,3 @@
-#![feature(int_log)]
-
 use clap::{Arg, Command};
 
 mod fox;
