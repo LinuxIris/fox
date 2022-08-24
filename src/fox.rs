@@ -96,8 +96,8 @@ impl Fox {
                 print!("{}", format!(" {: >width$} ", line_num, width=width).on_truecolor(48,48,48));
 
                 let line = line.replace('\t', "  ");
-                let line = &line[..line.len().min(terminal_size.0 as usize - width - 2)];
-                let ranges: Vec<(Style, &str)> = h.highlight(line, &carbon_dump::SYNTAX_SET);
+                // let line = &line[..line.len().min(terminal_size.0 as usize - width - 2)];
+                let ranges: Vec<(Style, &str)> = h.highlight(&line, &carbon_dump::SYNTAX_SET);
                 print!("{}", as_24_bit_terminal_escaped(&ranges[..], true));
 
                 //Finish line
@@ -197,17 +197,33 @@ impl Fox {
                 // Multi line selection
                 todo!();
             }
-        } else if let Some(line) = self.text.get(self.cursor.1 as usize) {
-            if self.cursor.0 == 0 {
-                return;
+        } else {
+            let remove = if let Some(line) = self.text.get(self.cursor.1 as usize) {
+                if self.cursor.0 == 0 {
+                    true
+                } else {
+                    let line = line.clone();
+                    let (left, right) = line.split_at(self.cursor.0 as usize);
+                    let mut result = String::from(left);
+                    result.pop();
+                    result.push_str(right);
+                    self.text[self.cursor.1 as usize] = result;
+                    self.cursor_horizontal(-1);
+                    false
+                }
+            } else {
+                false
+            };
+
+            if remove {
+                let cur = self.text.get(self.cursor.1 as usize).unwrap().clone();
+                self.text.remove(self.cursor.1 as usize);
+                self.cursor_vertical(-1);
+                self.cursor_end_of_line();
+                if let Some(line) = self.text.get_mut(self.cursor.1 as usize) {
+                    line.push_str(&cur);
+                }
             }
-            let line = line.clone();
-            let (left, right) = line.split_at(self.cursor.0 as usize);
-            let mut result = String::from(left);
-            result.pop();
-            result.push_str(right);
-            self.text[self.cursor.1 as usize] = result;
-            self.cursor_horizontal(-1);
         }
     }
 
@@ -243,6 +259,18 @@ impl Fox {
         }
     }
 
+    pub fn cursor_start_of_line(&mut self) {
+        self.cursor.0 = 0;
+        self.highlight.0 = 0;
+    }
+
+    pub fn cursor_end_of_line(&mut self) {
+        if let Some(line) = self.text.get(self.cursor.1 as usize) {
+            self.cursor.0 = line.len() as u16;
+            self.highlight.0 = self.cursor.0;
+        }
+    }
+
     pub fn cursor_vertical(&mut self, i: i16) {
         let old = self.cursor.1;
         if i > 0 {
@@ -258,6 +286,15 @@ impl Fox {
             self.cursor.1 = old;
         }
         self.highlight = self.cursor;
+
+        // Scrolling
+        let (_, height) = size().expect("Failed to query terminal size!");
+        let offset = self.cursor.1 as i16 - self.scroll as i16;
+        if offset >= height as i16 - 2 {
+            self.scroll += 1;
+        } else if offset < 0 {
+            self.scroll -= 1;
+        }
     }
 
     //TODO: Perhaps move the cursor to the next/previous line if at the end/start of the current line?
