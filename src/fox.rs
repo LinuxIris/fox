@@ -207,6 +207,7 @@ impl Fox {
     pub fn save(&mut self) -> Result<()> {
         std::fs::write(&self.path, self.text.join("\n"))?;
         self.dirty = false;
+        self.status = String::from("Saved!");
         Ok(())
     }
 
