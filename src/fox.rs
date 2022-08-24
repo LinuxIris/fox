@@ -18,12 +18,14 @@ use syntect::{
 #[derive(Copy, Clone)]
 pub enum PromptType {
     UnsavedQuit,
+    Find,
 }
 
 impl PromptType {
     fn text(&self) -> &'static str {
         match self {
             Self::UnsavedQuit => "Unsaved changes, quit? (y/n)",
+            Self::Find => "Search",
         }
     }
 }
@@ -43,6 +45,7 @@ pub struct Fox {
 
     dirty: bool,
     prompt: Option<Prompt>,
+    status: String,
 
     syntax: SyntaxReference,
     theme: Theme,
@@ -83,6 +86,7 @@ impl Fox {
 
             dirty: false,
             prompt: None,
+            status: String::new(),
 
             syntax: syntax.clone(),
             theme: theme.clone(),
@@ -91,7 +95,7 @@ impl Fox {
         })
     }
 
-    pub fn redraw(&self) -> Result<()> {
+    pub fn redraw(&mut self) -> Result<()> {
         use std::io::Write;
         use owo_colors::OwoColorize;
 
@@ -171,7 +175,8 @@ impl Fox {
             print!("{}", format!("{}: ", prompt.prompt.text()).on_truecolor(64,64,64));
             print!("{}", prompt.buf.on_truecolor(64,64,64));
         } else {
-            print!("{}", "status here".on_truecolor(64,64,64));
+            print!("{}", self.status.on_truecolor(64,64,64));
+            self.status = String::new();
         }
 
         // Cursor location
@@ -205,10 +210,52 @@ impl Fox {
         Ok(())
     }
 
+    fn find_from(&mut self, s: &str, y: usize) -> bool {
+        for i in y..self.text.len() {
+            if let Some(line) = self.text.get(i) {
+                let mut line = line.to_string();
+                if i == self.cursor.1 as usize {
+                    line = line[self.cursor.0 as usize..].to_string();
+                }
+                if let Some(x) = line.find(s) {
+                    self.highlight.0 = x as u16;
+                    self.cursor.0 = self.highlight.0 + s.len() as u16;
+                    self.cursor.1 = i as u16;
+                    self.highlight.1 = self.cursor.1;
+
+                    // Calculate scroll - little bit fucked up rn lol
+                    let (_, mut height) = size().expect("Failed to query terminal size!");
+                    height -= 3;
+                    if self.cursor.1 as i16 - self.scroll as i16 > height as i16 {
+                        self.scroll += ((self.cursor.1 as i16 - self.scroll as i16) - height as i16) as u16;
+                    } else if (self.cursor.1 as i16 - self.scroll as i16) < 0 {
+                        self.scroll = 0;
+                        if self.cursor.1 as i16 - self.scroll as i16 > height as i16 {
+                            self.scroll += ((self.cursor.1 as i16 - self.scroll as i16) - height as i16) as u16;
+                        }
+                    }
+
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    pub fn find_next(&mut self, s: &str) -> bool {
+        if !self.find_from(s, self.cursor.1 as usize) {
+            if !self.find_from(s, 0) {
+                return false;
+            }
+        }
+        true
+    }
+
     pub fn push_char(&mut self, c: char) {
         if let Some(prompt) = &mut self.prompt {
             prompt.buf.push(c);
         } else {
+            self.dirty = true;
             if let Some(line) = self.text.get(self.cursor.1 as usize) {
                 let line = line.clone();
                 let (left, right) = line.split_at(self.cursor.0 as usize);
@@ -228,6 +275,7 @@ impl Fox {
         if let Some(prompt) = &mut self.prompt {
             prompt.buf.pop();
         } else {
+            self.dirty = true;
             if self.highlight != self.cursor {
                 if self.highlight.1 == self.cursor.1 {
                     // Single line selection
@@ -280,6 +328,7 @@ impl Fox {
 
     pub fn pop_char_del(&mut self) {
         if self.prompt.is_none() {
+            self.dirty = true;
             if self.highlight != self.cursor {
                 self.pop_char();
             } else if let Some(line) = self.text.get(self.cursor.1 as usize) {
@@ -424,6 +473,7 @@ pub fn run(filename: &str) -> Result<()> {
                             }
                         },
                         KeyCode::Char('s') => editor.save()?, //TODO: If also holding shift, save as?
+                        KeyCode::Char('f') => editor.prompt(PromptType::Find),
                         _ => {},
                     }
                 } else if key.modifiers.contains(KeyModifiers::SHIFT) {
@@ -435,23 +485,33 @@ pub fn run(filename: &str) -> Result<()> {
                     }
                 } else {
                     match key.code {
-                        KeyCode::Char(c) => { editor.push_char(c); editor.dirty = true; },
-                        KeyCode::Tab => { editor.push_char('\t'); editor.dirty = true; },
-                        KeyCode::Backspace => { editor.pop_char(); editor.dirty = true; },
-                        KeyCode::Delete => { editor.pop_char_del(); editor.dirty = true; },
+                        KeyCode::Char(c) => editor.push_char(c),
+                        KeyCode::Tab => editor.push_char('\t'),
+                        KeyCode::Backspace => editor.pop_char(),
+                        KeyCode::Delete => editor.pop_char_del(),
                         KeyCode::Enter => {
                             if editor.prompt.is_some() {
                                 let prompt = editor.prompt.as_ref().unwrap().clone();
                                 let ans = &prompt.buf;
-                                match prompt.prompt {
-                                    PromptType::UnsavedQuit => if ans == "y" || ans == "ye" || ans == "yes" { break 'app; }
+                                if match prompt.prompt {
+                                    PromptType::UnsavedQuit => { if ans == "y" || ans == "ye" || ans == "yes" { break 'app; }; true },
+                                    PromptType::Find => {
+                                        let found = editor.find_next(ans);
+                                        if !found {
+                                            editor.prompt = None;
+                                            editor.status = String::from("Could not find string!");
+                                        }
+                                        false
+                                    },
+                                } {
+                                    editor.prompt = None;
                                 }
-                                editor.prompt = None;
                             } else {
                                 editor.enter();
                                 editor.dirty = true;
                             }
                         },
+                        KeyCode::Esc => if editor.prompt.is_some() { editor.prompt = None; }
 
                         KeyCode::Up => editor.cursor_vertical(-1),
                         KeyCode::Down => editor.cursor_vertical(1),
