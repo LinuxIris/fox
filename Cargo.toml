@@ -2,6 +2,8 @@
 name = "fox"
 version = "0.1.0"
 edition = "2021"
+description = "Terminal-based code editor with syntax highlighting"
+license = "GPL-3.0-only"
 
 [dependencies]
 crossterm = "0.25.0"
