@@ -15,10 +15,13 @@ use syntect::{
     parsing::SyntaxReference,
 };
 
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 #[derive(Copy, Clone)]
 pub enum PromptType {
     UnsavedQuit,
     Find,
+    Help,
 }
 
 impl PromptType {
@@ -26,6 +29,14 @@ impl PromptType {
         match self {
             Self::UnsavedQuit => "Unsaved changes, quit? (y/n)",
             Self::Find => "Search",
+            Self::Help => "Help!",
+        }
+    }
+
+    fn description(&self) -> String {
+        match self {
+            Self::Help => format!("Fox editor\nVersion {}", VERSION),
+            _ => String::new(),
         }
     }
 }
@@ -45,6 +56,7 @@ pub struct Fox {
 
     dirty: bool,
     prompt: Option<Prompt>,
+    popup: Option<Prompt>,
     status: String,
 
     syntax: SyntaxReference,
@@ -65,7 +77,8 @@ impl Fox {
         // stdout().execute(cursor::SetCursorShape(cursor::CursorShape::Line))?;
         enable_raw_mode()?;
 
-        let path = Path::new(filename);
+        let filename_expanded = shellexpand::full(filename).map(|s| s.to_string()).unwrap_or(filename.to_string());
+        let path = Path::new(&filename_expanded);
         let text: Vec<String> = if path.exists() { // Perhaps try_exists is better here
             std::fs::read_to_string(path).expect("File exists but cannot be opened for unknown reasons!").lines().map(|l| l.to_string()).collect()
         } else {
@@ -123,6 +136,7 @@ impl Fox {
 
             dirty: false,
             prompt: None,
+            popup: None,
             status: String::new(),
 
             syntax: syntax.clone(),
@@ -141,6 +155,8 @@ impl Fox {
     pub fn redraw(&mut self) -> Result<()> {
         use std::io::Write;
         use owo_colors::OwoColorize;
+
+        stdout().execute(cursor::Hide)?;
 
         let terminal_size = size()?;
 
@@ -229,6 +245,37 @@ impl Fox {
         stdout().execute(cursor::MoveTo(terminal_size.0-footer_loc.len() as u16,terminal_size.1))?;
         print!("{}", footer_loc.truecolor(self.fg.r, self.fg.g, self.fg.b).on_truecolor(self.header_bg.r,self.header_bg.g,self.header_bg.b));
 
+        // Popup rendering
+        if let Some(popup) = &self.popup {
+            let (w,h) = terminal_size;
+            let x = w / 3;
+            let y = h / 3;
+            let w = w / 3;
+            let h = h / 3;
+            for i in 0..h {
+                stdout().execute(cursor::MoveTo(x,y+i))?;
+                for _ in 0..w {
+                    print!("{}", " ".on_truecolor(self.gutter_bg.r, self.gutter_bg.g, self.gutter_bg.b));
+                }
+            }
+
+            let max_text_width = (w - 2) as usize;
+            let title = popup.prompt.text();
+            let len = title.len().min(max_text_width);
+            let title = &title[..len];
+            let offset = (max_text_width - len) / 2 - len % 2;
+            stdout().execute(cursor::MoveTo(x+1+offset as u16,y+1))?;
+            print!("{}", title.truecolor(self.fg.r, self.fg.g, self.fg.b).on_truecolor(self.gutter_bg.r, self.gutter_bg.g, self.gutter_bg.b));
+
+            let desc = popup.prompt.description();
+            let description: Vec<&str> = desc.lines().collect();
+            for i in 0..description.len().min((h.max(3)-3) as usize) {
+                let line = description[i];
+                stdout().execute(cursor::MoveTo(x+1,y+3+i as u16))?;
+                print!("{}", line.truecolor(self.fg.r, self.fg.g, self.fg.b).on_truecolor(self.gutter_bg.r, self.gutter_bg.g, self.gutter_bg.b));
+            }
+        }
+
         // Move cursor to show typing location
         let cpos_y = if self.scroll > self.cursor.1 { 0 } else { self.cursor.1 - self.scroll } + 1;
         if cpos_y < 1 || cpos_y >= terminal_size.1-1 {
@@ -245,6 +292,13 @@ impl Fox {
     pub fn prompt(&mut self, prompt: PromptType) {
         self.prompt = Some(Prompt {
             prompt: prompt,
+            buf: String::new(),
+        });
+    }
+
+    pub fn popup(&mut self, popup: PromptType) {
+        self.popup = Some(Prompt {
+            prompt: popup,
             buf: String::new(),
         });
     }
@@ -298,7 +352,9 @@ impl Fox {
     }
 
     pub fn push_char(&mut self, c: char) {
-        if let Some(prompt) = &mut self.prompt {
+        if let Some(popup) = &mut self.popup {
+            popup.buf.push(c);
+        } else if let Some(prompt) = &mut self.prompt {
             prompt.buf.push(c);
         } else {
             self.dirty = true;
@@ -318,7 +374,9 @@ impl Fox {
     }
 
     pub fn pop_char(&mut self) {
-        if let Some(prompt) = &mut self.prompt {
+        if let Some(popup) = &mut self.popup {
+            popup.buf.pop();
+        } else if let Some(prompt) = &mut self.prompt {
             prompt.buf.pop();
         } else {
             self.dirty = true;
@@ -373,7 +431,7 @@ impl Fox {
     }
 
     pub fn pop_char_del(&mut self) {
-        if self.prompt.is_none() {
+        if self.prompt.is_none() && self.popup.is_none() {
             self.dirty = true;
             if self.highlight != self.cursor {
                 self.pop_char();
@@ -520,6 +578,7 @@ pub fn run(filename: &str) -> Result<()> {
                         },
                         KeyCode::Char('s') => editor.save()?, //TODO: If also holding shift, save as?
                         KeyCode::Char('f') => editor.prompt(PromptType::Find),
+                        KeyCode::Char('h') => editor.popup(PromptType::Help),
                         _ => {},
                     }
                 } else if key.modifiers.contains(KeyModifiers::SHIFT) {
@@ -536,28 +595,39 @@ pub fn run(filename: &str) -> Result<()> {
                         KeyCode::Backspace => editor.pop_char(),
                         KeyCode::Delete => editor.pop_char_del(),
                         KeyCode::Enter => {
-                            if editor.prompt.is_some() {
-                                let prompt = editor.prompt.as_ref().unwrap().clone();
+                            fn handle_prompt(editor: &mut Fox, prompt: Prompt, is_popup: bool) -> bool {
                                 let ans = &prompt.buf;
                                 if match prompt.prompt {
-                                    PromptType::UnsavedQuit => { if ans == "y" || ans == "ye" || ans == "yes" { break 'app; }; true },
+                                    PromptType::UnsavedQuit => { if ans == "y" || ans == "ye" || ans == "yes" { return true; }; true },
                                     PromptType::Find => {
                                         let found = editor.find_next(ans);
                                         if !found {
-                                            editor.prompt = None;
                                             editor.status = String::from("Could not find string!");
                                         }
-                                        false
+                                        !found
                                     },
+                                    PromptType::Help => true,
                                 } {
-                                    editor.prompt = None;
+                                    if is_popup {
+                                        editor.popup = None;
+                                    } else {
+                                        editor.prompt = None;
+                                    }
                                 }
+                                false
+                            }
+                            if editor.popup.is_some() {
+                                let popup = editor.popup.as_ref().unwrap().clone();
+                                if handle_prompt(&mut editor, popup, true) { break 'app; }
+                            } else if editor.prompt.is_some() {
+                                let prompt = editor.prompt.as_ref().unwrap().clone();
+                                if handle_prompt(&mut editor, prompt, false) { break 'app; }
                             } else {
                                 editor.enter();
                                 editor.dirty = true;
                             }
                         },
-                        KeyCode::Esc => if editor.prompt.is_some() { editor.prompt = None; }
+                        KeyCode::Esc => if editor.popup.is_some() { editor.popup = None; } else if editor.prompt.is_some() { editor.prompt = None; }
 
                         KeyCode::Up => editor.cursor_vertical(-1),
                         KeyCode::Down => editor.cursor_vertical(1),

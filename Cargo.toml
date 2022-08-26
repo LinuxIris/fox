@@ -13,6 +13,7 @@ path = "src/main.rs"
 crossterm = "0.25.0"
 clap = "3.2.17"
 owo-colors = "3.4.0"
+shellexpand = "2.1.2"
 
 # Syntax highlighting
 syntect = "4.6"
