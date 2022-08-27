@@ -6,7 +6,7 @@ mod config;
 fn main() {
     let matches = Command::new("fox")
         .about("simple code editor")
-        .version("0.0.1")
+        .version(env!("CARGO_PKG_VERSION"))
         .arg_required_else_help(true)
         .author("lucky4luuk")
         .subcommand(
