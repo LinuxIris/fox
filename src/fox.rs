@@ -15,6 +15,8 @@ use syntect::{
     parsing::SyntaxReference,
 };
 
+use crate::config::*;
+
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Copy, Clone)]
@@ -35,7 +37,10 @@ impl PromptType {
 
     fn description(&self) -> String {
         match self {
-            Self::Help => format!("Fox editor\nVersion {}", VERSION),
+            Self::Help => format!("Fox editor\nVersion {}\nConfig: {}\n\nCommands:\n ctrl-h: help\n ctrl-s: save\n ctrl-q: quit\n ctrl-f: search",
+                            VERSION,
+                            config_location().map(|p| p.display().to_string()).unwrap_or(String::from("unavailable"))
+                          ),
             _ => String::new(),
         }
     }
@@ -73,6 +78,9 @@ pub struct Fox {
 
 impl Fox {
     pub fn new(filename: &str) -> Result<Self> {
+        let config = config();
+        let default_config = Config::default();
+
         stdout().execute(EnterAlternateScreen)?;
         // stdout().execute(cursor::SetCursorShape(cursor::CursorShape::Line))?;
         enable_raw_mode()?;
@@ -92,8 +100,8 @@ impl Fox {
         } else {
             ps.find_syntax_plain_text()
         };
-        let theme = &ts.themes["gruvbox-dark"]; // gruvbox-dark
-        let theme_is_dark = true;
+        let theme = ts.themes.get(&config.theme.name).unwrap_or_else(|| &ts.themes[&default_config.theme.name]); // gruvbox-dark
+        let theme_is_dark = !config.theme.light_fix;
 
         let bg = theme.settings.background.unwrap_or(Color::BLACK);
         let fg = theme.settings.foreground.unwrap_or(Color::WHITE);
@@ -195,7 +203,7 @@ impl Fox {
                 for _ in cursor::position()?.0 .. terminal_size.0 { print!("{}", " ".on_truecolor(self.bg.r, self.bg.g, self.bg.b)); }
             } else {
                 print!("{}", format!(" {: >width$} ", line_num, width=width).truecolor(self.gutter_fg.r, self.gutter_fg.g, self.gutter_fg.b).on_truecolor(self.gutter_bg.r, self.gutter_bg.g, self.gutter_bg.b));
-                print!("{}", "~".truecolor(self.gutter_fg.r, self.gutter_fg.g, self.gutter_fg.b).on_truecolor(self.gutter_bg.r, self.gutter_bg.g, self.gutter_bg.b));
+                print!("{}", "~".truecolor(self.gutter_fg.r, self.gutter_fg.g, self.gutter_fg.b).on_truecolor(self.bg.r, self.bg.g, self.bg.b));
                 //Finish line
                 for _ in cursor::position()?.0 .. terminal_size.0 { print!("{}", " ".on_truecolor(self.bg.r, self.bg.g, self.bg.b)); }
             }
@@ -248,10 +256,10 @@ impl Fox {
         // Popup rendering
         if let Some(popup) = &self.popup {
             let (w,h) = terminal_size;
-            let x = w / 3;
-            let y = h / 3;
-            let w = w / 3;
-            let h = h / 3;
+            let x = w / 6;
+            let y = h / 6;
+            let w = w / 6 * 4;
+            let h = h / 6 * 4;
             for i in 0..h {
                 stdout().execute(cursor::MoveTo(x,y+i))?;
                 for _ in 0..w {
@@ -402,7 +410,7 @@ impl Fox {
             } else {
                 let remove = if let Some(line) = self.text.get(self.cursor.1 as usize) {
                     if self.cursor.0 == 0 {
-                        true
+                        self.cursor.1 != 0
                     } else {
                         let line = line.clone();
                         let (left, right) = line.split_at(self.cursor.0 as usize);
@@ -461,7 +469,7 @@ impl Fox {
             self.text[self.cursor.1 as usize] = String::from(left);
             self.text.insert(self.cursor.1 as usize + 1, right);
             self.cursor_vertical(1);
-            self.cursor.0 = 0;
+            self.cursor_start_of_line();
         }
     }
 
@@ -553,6 +561,22 @@ impl Fox {
             self.highlight.0 = old;
         }
     }
+
+    pub fn swap_down(&mut self) {
+        if let Some(line_down) = self.text.get(self.cursor.1 as usize + 1) {
+            let line = self.text.get(self.cursor.1 as usize).expect("How did we get here?").clone();
+            self.text[self.cursor.1 as usize] = line_down.clone();
+            self.text[self.cursor.1 as usize + 1] = line.to_string();
+            self.cursor_vertical(1);
+            self.dirty = true;
+        }
+    }
+
+    pub fn swap_up(&mut self) {
+        self.cursor_vertical(-1);
+        self.swap_down();
+        self.cursor_vertical(-1);
+    }
 }
 
 impl Drop for Fox {
@@ -579,6 +603,10 @@ pub fn run(filename: &str) -> Result<()> {
                         KeyCode::Char('s') => editor.save()?, //TODO: If also holding shift, save as?
                         KeyCode::Char('f') => editor.prompt(PromptType::Find),
                         KeyCode::Char('h') => editor.popup(PromptType::Help),
+
+                        KeyCode::Down => editor.swap_down(),
+                        KeyCode::Up => editor.swap_up(),
+
                         _ => {},
                     }
                 } else if key.modifiers.contains(KeyModifiers::SHIFT) {

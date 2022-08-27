@@ -18,3 +18,7 @@ shellexpand = "2.1.2"
 # Syntax highlighting
 syntect = "4.6"
 carbon-dump = "1.2.2"
+
+# Config
+toml = "0.5.9"
+serde = { version = "1.0.144", features = ["derive"] }
