@@ -1,6 +1,7 @@
 use clap::{Arg, Command};
 
 mod fox;
+mod config;
 
 fn main() {
     let matches = Command::new("fox")
