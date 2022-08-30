@@ -623,6 +623,17 @@ pub fn run(filename: &str) -> Result<()> {
                         KeyCode::Char('f') => editor.prompt(PromptType::Find),
                         KeyCode::Char('h') => editor.popup(PromptType::Help),
                         KeyCode::Char('k') => editor.prompt(PromptType::GoToLine),
+                        KeyCode::Char('v') => {
+                            if let Ok(clipboard) = terminal_clipboard::get_string() {
+                                for line in clipboard.lines() {
+                                    for c in line.chars() {
+                                        editor.push_char(c);
+                                    }
+                                    editor.enter();
+                                    editor.cursor_start_of_line();
+                                }
+                            }
+                        }
 
                         KeyCode::Down => editor.swap_down(),
                         KeyCode::Up => editor.swap_up(),
