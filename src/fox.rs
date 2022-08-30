@@ -2,7 +2,7 @@ use std::io::{stdout};
 use std::path::Path;
 
 use crossterm::{
-    terminal::*,
+	terminal::*,
     cursor,
     ExecutableCommand, Result,
     event::*,
@@ -200,10 +200,11 @@ impl Fox {
             if let Some(line) = self.text.get(line_num-1) {
                 print!("{}", format!(" {: >width$} ", line_num, width=width).truecolor(self.gutter_fg.r, self.gutter_fg.g, self.gutter_fg.b).on_truecolor(self.gutter_bg.r, self.gutter_bg.g, self.gutter_bg.b));
 
-                let line = line.replace('\t', "➡");
                 // let line = &line[..line.len().min(terminal_size.0 as usize - width - 2)];
                 let ranges: Vec<(Style, &str)> = h.highlight(&line, &carbon_dump::SYNTAX_SET);
-                print!("{}", as_24_bit_terminal_escaped(&ranges[..], true));
+                let line = as_24_bit_terminal_escaped(&ranges[..], true);
+                let line = line.replace('\t', &format!("{}", "--->".truecolor(self.gutter_bg.r, self.gutter_bg.g, self.gutter_bg.b)));
+                print!("{}", line);
 
                 //Finish line
                 for _ in cursor::position()?.0 .. terminal_size.0 { print!("{}", " ".on_truecolor(self.bg.r, self.bg.g, self.bg.b)); }
@@ -296,7 +297,9 @@ impl Fox {
             stdout().execute(cursor::Hide)?;
         } else {
             if self.highlight == self.cursor { stdout().execute(cursor::Show)?; } else { stdout().execute(cursor::Hide)?; }
-            stdout().execute(cursor::MoveTo(self.cursor.0 + width as u16 + 2, cpos_y))?;
+            let tab_count = self.text[self.cursor.1 as usize][..self.cursor.0 as usize].matches("\t").count();
+            let tab_offset = tab_count * 3;
+            stdout().execute(cursor::MoveTo(self.cursor.0 + width as u16 + 2 + tab_offset as u16, cpos_y))?;
         }
 
         stdout().flush()?;
