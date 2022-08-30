@@ -198,7 +198,7 @@ impl Fox {
             if let Some(line) = self.text.get(line_num-1) {
                 print!("{}", format!(" {: >width$} ", line_num, width=width).truecolor(self.gutter_fg.r, self.gutter_fg.g, self.gutter_fg.b).on_truecolor(self.gutter_bg.r, self.gutter_bg.g, self.gutter_bg.b));
 
-                let line = line.replace('\t', "  ");
+                let line = line.replace('\t', " ");
                 // let line = &line[..line.len().min(terminal_size.0 as usize - width - 2)];
                 let ranges: Vec<(Style, &str)> = h.highlight(&line, &carbon_dump::SYNTAX_SET);
                 print!("{}", as_24_bit_terminal_escaped(&ranges[..], true));
@@ -371,16 +371,21 @@ impl Fox {
         } else {
             self.dirty = true;
             if let Some(line) = self.text.get(self.cursor.1 as usize) {
-                let line = line.clone();
-                let (left, right) = line.split_at(self.cursor.0 as usize);
-                let mut result = String::from(left);
-                result.push(c);
-                result.push_str(right);
-                self.text[self.cursor.1 as usize] = result;
-                self.cursor_horizontal(match c {
-                    '\t' => 2,
-                    _ => 1,
-                });
+                if self.cursor.0 == 0 {
+                    let line = line.clone();
+                    let mut result = String::from(c);
+                    result.push_str(&line);
+                    self.text[self.cursor.1 as usize] = result;
+                    self.cursor_horizontal(1);
+                } else {
+                    let line = line.clone();
+                    let (left, right) = line.split_at(self.cursor.0 as usize);
+                    let mut result = String::from(left);
+                    result.push(c);
+                    result.push_str(right);
+                    self.text[self.cursor.1 as usize] = result;
+                    self.cursor_horizontal(1);
+                }
             }
         }
     }
