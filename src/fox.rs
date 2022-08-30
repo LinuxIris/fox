@@ -487,6 +487,22 @@ impl Fox {
         }
     }
 
+    pub fn get_selection(&self) -> String {
+        if self.cursor.1 == self.highlight.1 {
+            // Single line selection
+            if let Some(line) = self.text.get(self.cursor.1 as usize) {
+                let minx = self.cursor.0.min(self.highlight.0) as usize;
+                let maxx = self.cursor.0.max(self.highlight.0) as usize;
+                line[minx..maxx].to_string()
+            } else {
+                String::new()
+            }
+        } else {
+            // Multi line selection
+            todo!();
+        }
+    }
+
     pub fn cursor_start_of_line(&mut self) {
         self.cursor.0 = 0;
         self.highlight.0 = 0;
@@ -645,6 +661,7 @@ pub fn run(filename: &str) -> Result<()> {
                                 }
                             }
                         }
+                        KeyCode::Char('c') => { let _ = terminal_clipboard::set_string(editor.get_selection()); },
 
                         KeyCode::Down => editor.swap_down(),
                         KeyCode::Up => editor.swap_up(),
