@@ -24,6 +24,7 @@ pub enum PromptType {
     UnsavedQuit,
     Find,
     Help,
+    GoToLine,
 }
 
 impl PromptType {
@@ -32,6 +33,7 @@ impl PromptType {
             Self::UnsavedQuit => "Unsaved changes, quit? (y/n)",
             Self::Find => "Search",
             Self::Help => "Help!",
+            Self::GoToLine => "Go to",
         }
     }
 
@@ -564,6 +566,21 @@ impl Fox {
         }
     }
 
+    pub fn go_to_line(&mut self, line: u16) {
+        let i = line.min(self.text.len() as u16 - 1);
+        self.cursor.1 = i;
+        self.highlight.1 = self.cursor.1;
+        self.cursor_start_of_line();
+        // Scrolling
+        let (_, height) = size().expect("Failed to query terminal size!");
+        let offset = self.cursor.1 as i16 - self.scroll as i16;
+        if offset >= height as i16 - 2 {
+            self.scroll += offset as u16;
+        } else if offset < 0 {
+            self.scroll -= offset.abs() as u16;
+        }
+    }
+
     pub fn swap_down(&mut self) {
         if let Some(line_down) = self.text.get(self.cursor.1 as usize + 1) {
             let line = self.text.get(self.cursor.1 as usize).expect("How did we get here?").clone();
@@ -605,6 +622,7 @@ pub fn run(filename: &str) -> Result<()> {
                         KeyCode::Char('s') => editor.save()?, //TODO: If also holding shift, save as?
                         KeyCode::Char('f') => editor.prompt(PromptType::Find),
                         KeyCode::Char('h') => editor.popup(PromptType::Help),
+                        KeyCode::Char('k') => editor.prompt(PromptType::GoToLine),
 
                         KeyCode::Down => editor.swap_down(),
                         KeyCode::Up => editor.swap_up(),
@@ -637,6 +655,12 @@ pub fn run(filename: &str) -> Result<()> {
                                         !found
                                     },
                                     PromptType::Help => true,
+                                    PromptType::GoToLine => {
+                                        if let Ok(num) = ans.parse::<u16>() {
+                                            editor.go_to_line(num.max(1) - 1);
+                                        }
+                                        true
+                                    }
                                 } {
                                     if is_popup {
                                         editor.popup = None;
