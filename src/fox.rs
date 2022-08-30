@@ -55,6 +55,7 @@ pub struct Prompt {
 }
 
 pub struct Fox {
+    path_expanded: String,
     path: String,
     text: Vec<String>,
     cursor: (u16, u16),
@@ -140,6 +141,7 @@ impl Fox {
         };
 
         Ok(Self {
+            path_expanded: filename_expanded,
             path: filename.to_string(),
             text: text,
             cursor: (0,0),
@@ -198,7 +200,7 @@ impl Fox {
             if let Some(line) = self.text.get(line_num-1) {
                 print!("{}", format!(" {: >width$} ", line_num, width=width).truecolor(self.gutter_fg.r, self.gutter_fg.g, self.gutter_fg.b).on_truecolor(self.gutter_bg.r, self.gutter_bg.g, self.gutter_bg.b));
 
-                let line = line.replace('\t', " ");
+                let line = line.replace('\t', "➡");
                 // let line = &line[..line.len().min(terminal_size.0 as usize - width - 2)];
                 let ranges: Vec<(Style, &str)> = h.highlight(&line, &carbon_dump::SYNTAX_SET);
                 print!("{}", as_24_bit_terminal_escaped(&ranges[..], true));
@@ -316,7 +318,7 @@ impl Fox {
     }
 
     pub fn save(&mut self) -> Result<()> {
-        std::fs::write(&self.path, self.text.join("\n"))?;
+        std::fs::write(&self.path_expanded, self.text.join("\n"))?;
         self.dirty = false;
         self.status = String::from("Saved!");
         Ok(())
