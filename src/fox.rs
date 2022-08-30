@@ -96,7 +96,9 @@ impl Fox {
         let ps = &carbon_dump::SYNTAX_SET;
         let ts = &carbon_dump::THEME_SET;
         let syntax = if let Some(extension) = &path.extension().map(|s| s.to_str().expect("Unparsable extension!")) {
-            ps.find_syntax_by_extension(&extension).unwrap()
+            ps.find_syntax_by_extension(&extension).unwrap_or_else(|| ps.find_syntax_plain_text())
+        } else if let Some(filename) = &path.file_name().map(|s| s.to_str().expect("Unparsable filename!")) {
+            ps.find_syntax_by_extension(&filename).unwrap_or_else(|| ps.find_syntax_plain_text())
         } else {
             ps.find_syntax_plain_text()
         };
