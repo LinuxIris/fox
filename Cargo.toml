@@ -1,6 +1,6 @@
 [package]
 name = "fox-editor"
-version = "0.5.2"
+version = "0.5.3"
 edition = "2021"
 description = "Terminal-based code editor with syntax highlighting"
 license = "GPL-3.0-only"

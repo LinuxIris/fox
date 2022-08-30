@@ -612,6 +612,7 @@ impl Drop for Fox {
     fn drop(&mut self) {
         let _ = stdout().execute(LeaveAlternateScreen);
         let _ = disable_raw_mode();
+        let _ = stdout().execute(cursor::Show);
     }
 }
 
